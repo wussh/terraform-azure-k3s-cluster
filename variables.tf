@@ -28,7 +28,7 @@ variable "ssh_public_key_path" {
 variable "vm_size" {
   description = "Size of the Azure VM"
   type        = string
-  default     = "Standard_B2ats_v2"
+  default     = "Standard_B2s"
 }
 
 variable "vnet_address_space" {
