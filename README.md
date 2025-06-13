@@ -130,6 +130,19 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --disable
    ```
    Replace `<master_vm_private_ip>` and `<token>` with your actual values.
 
+### GitOps with Flux CD
+
+To bootstrap Flux CD for GitOps automation:
+
+```sh
+flux bootstrap github \
+  --owner=wussh \
+  --repository=kubernetes-ingress-istio-automation \
+  --branch=main \
+  --path=clusters/azure \
+  --personal
+```
+
 ---
 
 ## Network Security Group (NSG) Rules
