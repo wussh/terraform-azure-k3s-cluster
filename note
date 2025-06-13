@@ -1,0 +1,12 @@
+gateway_subnet_id = "/subscriptions/bfa50e12-83e7-4b2e-964a-0af466ad693f/resourceGroups/rg-k3s/providers/Microsoft.Network/virtualNetworks/vnet-k3s/subnets/subnet-gateway"
+k3s_subnet_id = "/subscriptions/bfa50e12-83e7-4b2e-964a-0af466ad693f/resourceGroups/rg-k3s/providers/Microsoft.Network/virtualNetworks/vnet-k3s/subnets/subnet-k3s"
+load_balancer_public_ip = "4.194.11.155"
+master_vm_private_ip = "10.0.1.5"
+master_vm_public_ip = "52.230.88.167"
+resource_group_name = "rg-k3s"
+ssh_private_key_path = "./k3s_ssh_key"
+ssh_to_master_cmd = "ssh -i ./k3s_ssh_key wush@52.230.88.167"
+ssh_to_worker_from_master_cmd = "ssh wush@10.0.1.4"
+virtual_network_name = "vnet-k3s"
+worker_vm_private_ip = "10.0.1.4"
+K10f39f72aa565e00de0b7846ab8e468c494458e5f1bcbb1fd663ca172eb1356060::server:ea674e55610a96fda7cd1b79b03ec477
