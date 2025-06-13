@@ -1,80 +1,185 @@
-# Azure K3s Terraform Configuration
+# Azure K3s Terraform Deployment
 
-This project contains Terraform configuration to provision a Kubernetes (K3s) cluster on Azure. The infrastructure includes networking, load balancer, and compute resources to run a lightweight Kubernetes environment.
+## Overview
+This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Terraform. It sets up a master and worker VM, configures networking, security, and generates SSH keys for secure access. The setup is suitable for development, testing, and learning Kubernetes on Azure.
 
-## Project Structure
+---
 
-The Terraform configuration is organized into multiple files for better maintainability:
+## Architecture
+- **Azure Resources:**
+  - Resource Group
+  - Virtual Network & Subnets
+  - Network Security Groups (NSGs) with recommended K3s rules
+  - Public IPs for Load Balancer and Master VM
+  - Azure Load Balancer (L4)
+  - Linux Virtual Machines (Master & Worker)
+- **K3s:**
+  - Master node runs the K3s server
+  - Worker node joins the cluster as an agent
+  - Optional: Traefik ingress controller (disabled by default)
 
-- `main.tf` - The entry point for the Terraform configuration
-- `providers.tf` - Provider configuration and resource group definition
-- `variables.tf` - Variable definitions with default values
-- `network.tf` - Network resources (VNet, subnets, NSGs, NICs)
-- `loadbalancer.tf` - Load balancer and related resources
-- `compute.tf` - Virtual machine resources
-- `outputs.tf` - Output definitions
+---
 
 ## Prerequisites
+- [Terraform](https://www.terraform.io/downloads.html) >= 1.0
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
+- Azure subscription and credentials set up (see `providers.tf`)
 
-- Terraform v1.0.0 or newer
-- Azure CLI installed and configured
-- SSH keypair for VM authentication
+---
 
-## Usage
+## Terraform Configuration Walkthrough
 
-1. Initialize the Terraform working directory:
+This project is organized into several `.tf` files, each with a specific purpose. Below is a detailed explanation of each file and the main resources defined within:
 
-```bash
-terraform init
+### `providers.tf`
+- **Purpose:** Configures the required Terraform providers and sets up the Azure provider with your subscription and tenant details.
+- **Key Resources:**
+  - `terraform { required_providers { ... } }`: Specifies the Azure, TLS, and Local providers.
+  - `provider "azurerm" { ... }`: Configures Azure authentication.
+  - `azurerm_resource_group.k3s`: Creates the resource group for all resources.
+
+### `variables.tf`
+- **Purpose:** Defines variables for customization, such as location, VM size, admin username, and network ranges.
+- **Key Variables:**
+  - `location`, `resource_group_name`, `admin_username`, `vm_size`, `vnet_address_space`, etc.
+
+### `main.tf`
+- **Purpose:** Entry point for the configuration and contains resources for generating SSH keys.
+- **Key Resources:**
+  - `tls_private_key.ssh`: Generates a new SSH key pair for VM access.
+  - `local_file.private_key` and `local_file.public_key`: Save the generated keys to files in your project directory.
+
+### `network.tf`
+- **Purpose:** Defines all networking resources, including VNet, subnets, NSGs, and network interfaces.
+- **Key Resources:**
+  - `azurerm_virtual_network.k3s`: The main VNet for the cluster.
+  - `azurerm_subnet.k3s` and `azurerm_subnet.gateway`: Subnets for K3s and gateway.
+  - `azurerm_network_security_group.k3s` and `azurerm_network_security_group.gateway`: NSGs with detailed security rules for K3s operation (see below for rule details).
+  - `azurerm_network_interface.master` and `azurerm_network_interface.worker`: NICs for the master and worker VMs.
+  - `azurerm_network_interface_backend_address_pool_association.master`: Associates the master NIC with the load balancer backend pool.
+
+### `loadbalancer.tf`
+- **Purpose:** Sets up the Azure Load Balancer and related resources for external access and traffic distribution.
+- **Key Resources:**
+  - `azurerm_public_ip.lb`: Public IP for the load balancer.
+  - `azurerm_lb.k3s`: The load balancer itself.
+  - `azurerm_lb_backend_address_pool.k3s`: Backend pool for VM association.
+  - `azurerm_lb_rule.ssh_master`, `azurerm_lb_rule.http`, `azurerm_lb_rule.https`: Rules for SSH, HTTP, and HTTPS traffic.
+  - `azurerm_lb_probe.http`, `azurerm_lb_probe.https`: Health probes for HTTP/HTTPS.
+
+### `compute.tf`
+- **Purpose:** Defines the compute resources (VMs) for the K3s master and worker nodes.
+- **Key Resources:**
+  - `azurerm_linux_virtual_machine.master` and `azurerm_linux_virtual_machine.worker`: The VMs for the master and worker nodes, configured to use the generated SSH key and the latest Ubuntu LTS image.
+  - `admin_ssh_key`: Injects the generated public key for secure access.
+  - `os_disk` and `source_image_reference`: Disk and OS image configuration.
+  - `provisioner` blocks (on master): Optionally copy the private key and set up SSH access from master to worker.
+
+### `outputs.tf`
+- **Purpose:** Defines outputs to make it easy to retrieve important information after deployment.
+- **Key Outputs:**
+  - `ssh_to_master_cmd`: SSH command for accessing the master VM.
+  - `ssh_to_worker_from_master_cmd`: SSH command for accessing the worker from the master.
+  - `master_vm_public_ip`, `worker_vm_private_ip`, etc.
+  - `ssh_private_key_path`: Path to the generated SSH private key.
+
+---
+
+## Example: How the Pieces Fit Together
+1. **Terraform generates an SSH key pair** and saves it locally.
+2. **Azure resources are provisioned:**
+   - Resource group, VNet, subnets, NSGs, public IPs, load balancer, and VMs.
+3. **NSG rules** ensure that all required K3s ports are open between nodes for cluster communication.
+4. **VMs are created** with the generated SSH key for secure access.
+5. **Outputs** provide you with ready-to-use SSH commands and IP addresses.
+6. **You install K3s** on the master and join the worker using the provided instructions.
+
+---
+
+## SSH Access
+
+### SSH to Master VM
+```sh
+ssh -i ./k3s_ssh_key wush@<master_vm_public_ip>
+```
+(Replace `<master_vm_public_ip>` with the value from Terraform outputs)
+
+### SSH to Worker VM (from Master)
+```sh
+ssh wush@<worker_vm_private_ip>
 ```
 
-2. Review the execution plan:
+---
 
-```bash
-terraform plan
+## K3s Installation
+
+### On Master Node
+Install K3s server (with Traefik disabled and kubeconfig readable by all users):
+```sh
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --disable=traefik --write-kubeconfig-mode 644" sh -
 ```
 
-3. Apply the changes:
+### On Worker Node
+1. Get the K3S token from the master:
+   ```sh
+   sudo cat /var/lib/rancher/k3s/server/node-token
+   ```
+2. On the worker node, join the cluster:
+   ```sh
+   curl -sfL https://get.k3s.io | K3S_URL=https://<master_vm_private_ip>:6443 K3S_TOKEN=<token> sh -
+   ```
+   Replace `<master_vm_private_ip>` and `<token>` with your actual values.
 
-```bash
-terraform apply
+---
+
+## Network Security Group (NSG) Rules
+The following ports are allowed between nodes for K3s operation (see `network.tf`):
+- **TCP 22:** SSH
+- **TCP 6443:** Kubernetes API server
+- **TCP 2379-2380:** etcd (HA only)
+- **UDP 8472:** Flannel VXLAN
+- **TCP 10250:** Kubelet metrics
+- **UDP 51820:** Flannel Wireguard IPv4
+- **UDP 51821:** Flannel Wireguard IPv6
+- **TCP 5001:** Embedded registry (Spegel)
+- **TCP 6443:** Embedded registry (Spegel)
+
+These rules are defined in the `azurerm_network_security_group.k3s` resource and ensure proper communication between all cluster nodes.
+
+---
+
+## Troubleshooting
+
+### Check if K3s is running (on master):
+```sh
+sudo systemctl status k3s
 ```
 
-4. When you're done with the infrastructure, you can destroy it:
-
-```bash
-terraform destroy
+### Check if API server is listening on port 6443:
+```sh
+sudo ss -tulnp | grep 6443
 ```
 
-## Customization
+### Test connectivity from worker to master:
+```sh
+nc -zv <master_vm_private_ip> 6443
+```
+Should show `succeeded!` or `Connected` if open.
 
-You can customize the deployment by modifying the variables in `variables.tf` or by providing override values:
-
-```bash
-terraform apply -var="location=eastus" -var="vm_size=Standard_B2s"
+### Check firewall status (on master):
+```sh
+sudo ufw status
+sudo systemctl status firewalld
 ```
 
-Alternatively, create a `terraform.tfvars` file:
+---
 
-```hcl
-location = "eastus"
-vm_size = "Standard_B2s"
-admin_username = "myadmin"
-```
+## References
+- [K3s Documentation](https://rancher.com/docs/k3s/latest/en/)
+- [Azure Terraform Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
+- [K3s on Azure Guide](https://rancher.com/docs/k3s/latest/en/installation/)
 
-## Resources Created
+---
 
-- Resource Group
-- Virtual Network with two subnets (K3s and Gateway)
-- Network Security Groups
-- Network Interfaces
-- Public IP
-- Load Balancer with HTTP and HTTPS rules
-- Two VMs (master and worker nodes)
-
-## Notes
-
-- The default VM size is Standard_B1s, which is suitable for a lightweight K3s cluster
-- SSH public key path defaults to `~/.ssh/id_rsa.pub` - update this in variables.tf if needed
-- The master node runs the K3s server while the worker node runs the K3s agent
-- HTTP and HTTPS traffic is allowed through the load balancer 
+## License
+MIT 
