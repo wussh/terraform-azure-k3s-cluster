@@ -43,3 +43,6 @@ k3s_ssh_key.pub
 .vscode/
 *.swp
 *.swo 
+
+# Ignore providers.tf file
+providers.tf
