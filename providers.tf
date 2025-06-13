@@ -8,6 +8,14 @@ terraform {
       source  = "hashicorp/azurerm"  # Official Azure provider from HashiCorp
       version = "=4.1.0"             # Pinned to exact version for stability
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
   }
 }
 

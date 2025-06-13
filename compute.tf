@@ -12,7 +12,7 @@ resource "azurerm_linux_virtual_machine" "master" {
 
   admin_ssh_key {
     username   = var.admin_username
-    public_key = file(var.ssh_public_key_path)
+    public_key = tls_private_key.ssh.public_key_openssh
   }
 
   os_disk {
@@ -22,9 +22,38 @@ resource "azurerm_linux_virtual_machine" "master" {
 
   source_image_reference {
     publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "22.04-LTS"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
     version   = "latest"
+  }
+
+  # Copy SSH private key to master VM for worker access
+  provisioner "file" {
+    content     = tls_private_key.ssh.private_key_pem
+    destination = "/home/${var.admin_username}/.ssh/id_rsa"
+
+    connection {
+      type        = "ssh"
+      user        = var.admin_username
+      private_key = tls_private_key.ssh.private_key_pem
+      host        = azurerm_public_ip.master.ip_address
+    }
+  }
+
+  # Set permissions and add worker to known hosts
+  provisioner "remote-exec" {
+    inline = [
+      "chmod 600 /home/${var.admin_username}/.ssh/id_rsa",
+      "echo '${azurerm_network_interface.worker.private_ip_address} ${azurerm_linux_virtual_machine.worker.name}' | sudo tee -a /etc/hosts",
+      "ssh-keyscan -H ${azurerm_network_interface.worker.private_ip_address} >> /home/${var.admin_username}/.ssh/known_hosts"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = var.admin_username
+      private_key = tls_private_key.ssh.private_key_pem
+      host        = azurerm_public_ip.master.ip_address
+    }
   }
 
   tags = {
@@ -47,7 +76,7 @@ resource "azurerm_linux_virtual_machine" "worker" {
 
   admin_ssh_key {
     username   = var.admin_username
-    public_key = file(var.ssh_public_key_path)
+    public_key = tls_private_key.ssh.public_key_openssh
   }
 
   os_disk {
@@ -57,8 +86,8 @@ resource "azurerm_linux_virtual_machine" "worker" {
 
   source_image_reference {
     publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "22.04-LTS"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
     version   = "latest"
   }
 

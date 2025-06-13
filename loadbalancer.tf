@@ -26,6 +26,17 @@ resource "azurerm_lb_backend_address_pool" "k3s" {
   name            = "istio-gateway-pool"
 }
 
+# Load Balancer SSH Rule for Master VM
+resource "azurerm_lb_rule" "ssh_master" {
+  loadbalancer_id                = azurerm_lb.k3s.id
+  name                           = "ssh-master"
+  protocol                       = "Tcp"
+  frontend_port                  = 22
+  backend_port                   = 22
+  frontend_ip_configuration_name = "PublicIPAddress"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
+}
+
 # Load Balancer HTTP Rule
 resource "azurerm_lb_rule" "http" {
   loadbalancer_id                = azurerm_lb.k3s.id

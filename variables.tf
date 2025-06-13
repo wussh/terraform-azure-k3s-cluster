@@ -16,7 +16,7 @@ variable "resource_group_name" {
 variable "admin_username" {
   description = "Username for the VM admin account"
   type        = string
-  default     = "adminuser"
+  default     = "wush"
 }
 
 variable "ssh_public_key_path" {
@@ -28,7 +28,7 @@ variable "ssh_public_key_path" {
 variable "vm_size" {
   description = "Size of the Azure VM"
   type        = string
-  default     = "Standard_B1s"
+  default     = "Standard_B2ats_v2"
 }
 
 variable "vnet_address_space" {
