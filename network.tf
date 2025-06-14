@@ -122,6 +122,32 @@ resource "azurerm_network_security_group" "k3s" {
     source_address_prefix      = "10.0.1.0/24"
     destination_address_prefix = "10.0.1.0/24"
   }
+
+  # Allow HTTP traffic
+  security_rule {
+    name                       = "allow-http"
+    priority                   = 210
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  # Allow HTTPS traffic
+  security_rule {
+    name                       = "allow-https"
+    priority                   = 220
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
 # Network Security Group Block for Gateway Subnet
