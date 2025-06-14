@@ -41,18 +41,9 @@ spec:
         namespace: flux-system
       version: "34.4.0"
   values:
-    experimental:
-      plugins:
-        traefik-middleware-request-logger:
-          moduleName: "github.com/cookielab/traefik-middleware-request-logger"
-          version: "v0.0.9"
     ingressRoute:
       dashboard:
         enabled: true
-    additionalArguments:
-      - "--api.insecure=true"
-      - "--experimental.plugins.traefik-middleware-request-logger.modulename=github.com/cookielab/traefik-middleware-request-logger"
-      - "--experimental.plugins.traefik-middleware-request-logger.version=v0.0.9"
     service:
       type: LoadBalancer
       spec:
@@ -90,46 +81,3 @@ spec:
             names:
               User-Agent: keep
               Referer: keep
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: traefik-dashboard-auth-secret
-  namespace: internal
-type: kubernetes.io/basic-auth
-stringData:
-  username: test
-  password: test
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: traefik-dashboard-auth
-  namespace: internal
-spec:
-  basicAuth:
-    secret: traefik-dashboard-auth-secret
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: request-logger
-  namespace: internal
-spec:
-  plugin:
-    traefik-middleware-request-logger:
-      ContentTypes:
-        - application/json
-        - application/x-www-form-urlencoded
-        - text/html
-      Limits:
-        MaxBodySize: "20971520"
-      RequestIDHeaderName: X-Request-ID
-      IncludeHeaders:
-        - X-Forwarded-For
-        - X-Real-IP
-      SkipHeaders:
-        - Authorization
-      StatusCodes:
-        - 200
-      LogTarget: stdout
