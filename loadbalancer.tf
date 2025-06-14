@@ -61,29 +61,29 @@ resource "azurerm_lb_rule" "https" {
   probe_id                       = azurerm_lb_probe.https.id
 }
 
-# Load Balancer Istio HTTP Rule
-resource "azurerm_lb_rule" "istio_http" {
-  loadbalancer_id                = azurerm_lb.k3s.id
-  name                           = "istio-http"
-  protocol                       = "Tcp"
-  frontend_port                  = 8080
-  backend_port                   = 8080
-  frontend_ip_configuration_name = "PublicIPAddress"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
-  probe_id                       = azurerm_lb_probe.istio_http.id
-}
+# # Load Balancer Istio HTTP Rule
+# resource "azurerm_lb_rule" "istio_http" {
+#   loadbalancer_id                = azurerm_lb.k3s.id
+#   name                           = "istio-http"
+#   protocol                       = "Tcp"
+#   frontend_port                  = 8080
+#   backend_port                   = 8080
+#   frontend_ip_configuration_name = "PublicIPAddress"
+#   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
+#   probe_id                       = azurerm_lb_probe.istio_http.id
+# }
 
-# Load Balancer Istio HTTPS Rule
-resource "azurerm_lb_rule" "istio_https" {
-  loadbalancer_id                = azurerm_lb.k3s.id
-  name                           = "istio-https"
-  protocol                       = "Tcp"
-  frontend_port                  = 8443
-  backend_port                   = 8443
-  frontend_ip_configuration_name = "PublicIPAddress"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
-  probe_id                       = azurerm_lb_probe.istio_https.id
-}
+# # Load Balancer Istio HTTPS Rule
+# resource "azurerm_lb_rule" "istio_https" {
+#   loadbalancer_id                = azurerm_lb.k3s.id
+#   name                           = "istio-https"
+#   protocol                       = "Tcp"
+#   frontend_port                  = 8443
+#   backend_port                   = 8443
+#   frontend_ip_configuration_name = "PublicIPAddress"
+#   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
+#   probe_id                       = azurerm_lb_probe.istio_https.id
+# }
 
 # Load Balancer Health Probe for HTTP
 resource "azurerm_lb_probe" "http" {
@@ -99,16 +99,16 @@ resource "azurerm_lb_probe" "https" {
   port            = 443
 }
 
-# Load Balancer Health Probe for Istio HTTP
-resource "azurerm_lb_probe" "istio_http" {
-  loadbalancer_id = azurerm_lb.k3s.id
-  name            = "istio-http-running-probe"
-  port            = 8080
-}
+# # Load Balancer Health Probe for Istio HTTP
+# resource "azurerm_lb_probe" "istio_http" {
+#   loadbalancer_id = azurerm_lb.k3s.id
+#   name            = "istio-http-running-probe"
+#   port            = 8080
+# }
 
-# Load Balancer Health Probe for Istio HTTPS
-resource "azurerm_lb_probe" "istio_https" {
-  loadbalancer_id = azurerm_lb.k3s.id
-  name            = "istio-https-running-probe"
-  port            = 8443
-} 
+# # Load Balancer Health Probe for Istio HTTPS
+# resource "azurerm_lb_probe" "istio_https" {
+#   loadbalancer_id = azurerm_lb.k3s.id
+#   name            = "istio-https-running-probe"
+#   port            = 8443
+# } 

@@ -33,3 +33,20 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 80 
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: istio-gateway-route
+  namespace: internal
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`istio.wush.site`)
+      kind: Rule
+      services:
+        - name: istio-gateway
+          namespace: istio-system
+          port: 80

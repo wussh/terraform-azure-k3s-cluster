@@ -8,19 +8,19 @@ spec:
     app: istio-gateway
   servers:
   - port:
-      number: 8080
+      number: 80
       name: http
       protocol: HTTP
     hosts:
-    - "*"
+    - "istio.wush.site"
   - port:
-      number: 8443
+      number: 443
       name: https
       protocol: HTTPS
     tls:
       mode: PASSTHROUGH
     hosts:
-    - "*"
+    - "istio.wush.site"
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService

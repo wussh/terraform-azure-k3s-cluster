@@ -215,10 +215,27 @@ az network nsg rule create \
 
 ## Istio Service Mesh
 
-This project includes support for deploying Istio as a service mesh alongside Traefik. The Istio Gateway is configured to use non-standard ports to avoid conflicts with Traefik:
+This project includes support for deploying Istio as a service mesh alongside Traefik. The architecture follows this pattern:
 
-- **TCP 8080:** Istio HTTP Gateway port
-- **TCP 8443:** Istio HTTPS Gateway port
+```
+Internet
+   ↓
+Cloudflare (istio.wush.site → Public IP)
+   ↓
+[ Traefik (LoadBalancer @ 80/443) ]
+   ↓
+Routing by Host(`istio.wush.site`)
+   ↓
+[ Istio Gateway (ClusterIP @ 80/443) ]
+   ↓
+[ Istio Service Mesh ]
+```
+
+This architecture provides several benefits:
+- Single entry point through Traefik for all external traffic
+- Simplified network security with standard ports (80/443)
+- Traefik handles TLS termination and external routing
+- Istio focuses on internal service mesh capabilities and traffic management
 
 ### Installing Istio
 
@@ -226,68 +243,55 @@ Istio is deployed using Flux CD with the following components:
 
 1. **istio-base:** Core CRDs and configurations
 2. **istiod:** Istio control plane with auto sidecar injection
-3. **istio-gateway:** Ingress gateway for external traffic
+3. **istio-gateway:** Ingress gateway for internal service mesh traffic (ClusterIP)
 
 The Helm release configurations are in `releases/azure/core/istio/release.yaml`.
 
-### Network Security Group Rules for Istio
+### Network Security Group Rules
 
-Ensure the following NSG rules are added to allow traffic to the Istio Gateway:
+The NSG rules for standard HTTP/HTTPS traffic are sufficient as all external traffic goes through Traefik:
 
 ```sh
 az network nsg rule create \
   --resource-group <resource_group_name> \
   --nsg-name nsg-k3s \
-  --name allow-istio-http \
-  --priority 230 \
+  --name allow-http \
+  --priority 210 \
   --protocol Tcp \
-  --destination-port-range 8080 \
+  --destination-port-range 80 \
   --access Allow
 
 az network nsg rule create \
   --resource-group <resource_group_name> \
   --nsg-name nsg-k3s \
-  --name allow-istio-https \
-  --priority 240 \
+  --name allow-https \
+  --priority 220 \
   --protocol Tcp \
-  --destination-port-range 8443 \
+  --destination-port-range 443 \
   --access Allow
 ```
 
-### Load Balancer Rules for Istio Gateway
+### Traefik to Istio Integration
 
-For the Istio Gateway to properly receive external traffic, the Azure Load Balancer must have rules for ports 8080 and 8443. These rules are defined in `loadbalancer.tf`:
+To route traffic from Traefik to the Istio Gateway, create a Traefik IngressRoute:
 
-```terraform
-# Load Balancer Istio HTTP Rule
-resource "azurerm_lb_rule" "istio_http" {
-  loadbalancer_id                = azurerm_lb.k3s.id
-  name                           = "istio-http"
-  protocol                       = "Tcp"
-  frontend_port                  = 8080
-  backend_port                   = 8080
-  frontend_ip_configuration_name = "PublicIPAddress"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
-  probe_id                       = azurerm_lb_probe.istio_http.id
-}
-
-# Load Balancer Istio HTTPS Rule
-resource "azurerm_lb_rule" "istio_https" {
-  loadbalancer_id                = azurerm_lb.k3s.id
-  name                           = "istio-https"
-  protocol                       = "Tcp"
-  frontend_port                  = 8443
-  backend_port                   = 8443
-  frontend_ip_configuration_name = "PublicIPAddress"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
-  probe_id                       = azurerm_lb_probe.istio_https.id
-}
-```
-
-To apply these changes to your Azure infrastructure:
-
-```sh
-terraform apply -target=azurerm_lb_rule.istio_http -target=azurerm_lb_rule.istio_https -target=azurerm_lb_probe.istio_http -target=azurerm_lb_probe.istio_https
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: istio-gateway-route
+  namespace: internal
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`istio.wush.site`)
+      kind: Rule
+      services:
+        - name: istio-gateway
+          namespace: istio-system
+          port: 80
 ```
 
 ### Using Istio Gateway
@@ -305,11 +309,19 @@ spec:
     app: istio-gateway
   servers:
   - port:
-      number: 8080
+      number: 80
       name: http
       protocol: HTTP
     hosts:
-    - "example.domain.com"
+    - "istio.wush.site"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: PASSTHROUGH
+    hosts:
+    - "istio.wush.site"
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
@@ -318,7 +330,7 @@ metadata:
   namespace: my-namespace
 spec:
   hosts:
-  - "example.domain.com"
+  - "istio.wush.site"
   gateways:
   - istio-system/istio-ingressgateway
   http:
@@ -329,7 +341,7 @@ spec:
           number: 80
 ```
 
-Access your service at `http://example.domain.com:8080` or `https://example.domain.com:8443` (after configuring DNS to point to your load balancer IP).
+Access your service at `http://istio.wush.site` or `https://istio.wush.site` through Traefik, which will route to the Istio Gateway.
 
 ---
 
