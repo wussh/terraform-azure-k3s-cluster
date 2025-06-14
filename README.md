@@ -213,6 +213,88 @@ az network nsg rule create \
   --access Allow
 ```
 
+## Istio Service Mesh
+
+This project includes support for deploying Istio as a service mesh alongside Traefik. The Istio Gateway is configured to use non-standard ports to avoid conflicts with Traefik:
+
+- **TCP 8080:** Istio HTTP Gateway port
+- **TCP 8443:** Istio HTTPS Gateway port
+
+### Installing Istio
+
+Istio is deployed using Flux CD with the following components:
+
+1. **istio-base:** Core CRDs and configurations
+2. **istiod:** Istio control plane with auto sidecar injection
+3. **istio-gateway:** Ingress gateway for external traffic
+
+The Helm release configurations are in `releases/azure/core/istio/release.yaml`.
+
+### Network Security Group Rules for Istio
+
+Ensure the following NSG rules are added to allow traffic to the Istio Gateway:
+
+```sh
+az network nsg rule create \
+  --resource-group <resource_group_name> \
+  --nsg-name nsg-k3s \
+  --name allow-istio-http \
+  --priority 230 \
+  --protocol Tcp \
+  --destination-port-range 8080 \
+  --access Allow
+
+az network nsg rule create \
+  --resource-group <resource_group_name> \
+  --nsg-name nsg-k3s \
+  --name allow-istio-https \
+  --priority 240 \
+  --protocol Tcp \
+  --destination-port-range 8443 \
+  --access Allow
+```
+
+### Using Istio Gateway
+
+To expose a service through the Istio Gateway, create Gateway and VirtualService resources:
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: istio-ingressgateway
+  namespace: istio-system
+spec:
+  selector:
+    app: istio-gateway
+  servers:
+  - port:
+      number: 8080
+      name: http
+      protocol: HTTP
+    hosts:
+    - "example.domain.com"
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: my-service
+  namespace: my-namespace
+spec:
+  hosts:
+  - "example.domain.com"
+  gateways:
+  - istio-system/istio-ingressgateway
+  http:
+  - route:
+    - destination:
+        host: my-service.my-namespace.svc.cluster.local
+        port:
+          number: 80
+```
+
+Access your service at `http://example.domain.com:8080` or `https://example.domain.com:8443` (after configuring DNS to point to your load balancer IP).
+
 ---
 
 ## Troubleshooting

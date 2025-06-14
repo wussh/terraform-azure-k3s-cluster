@@ -148,6 +148,32 @@ resource "azurerm_network_security_group" "k3s" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+
+  # Allow Istio HTTP traffic
+  security_rule {
+    name                       = "allow-istio-http"
+    priority                   = 230
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "8080"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  # Allow Istio HTTPS traffic
+  security_rule {
+    name                       = "allow-istio-https"
+    priority                   = 240
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "8443"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
 # Network Security Group Block for Gateway Subnet
