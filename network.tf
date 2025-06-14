@@ -302,3 +302,10 @@ resource "azurerm_network_interface_backend_address_pool_association" "master" {
   ip_configuration_name   = "internal"
   backend_address_pool_id = azurerm_lb_backend_address_pool.k3s.id
 } 
+
+# Associate Worker VM NIC with Load Balancer Backend Pool
+resource "azurerm_network_interface_backend_address_pool_association" "worker" {
+  network_interface_id    = azurerm_network_interface.worker.id
+  ip_configuration_name   = "internal"
+  backend_address_pool_id = azurerm_lb_backend_address_pool.k3s.id
+} 
