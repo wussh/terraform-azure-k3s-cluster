@@ -22,8 +22,6 @@ spec:
         kind: HelmRepository
         name: istio
         namespace: flux-system
-  install:
-    createNamespace: true
   values:
     global:
       hub: docker.io/istio
