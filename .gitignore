@@ -46,3 +46,5 @@ k3s_ssh_key.pub
 
 # Ignore providers.tf file
 providers.tf
+
+note

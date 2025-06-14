@@ -137,11 +137,28 @@ To bootstrap Flux CD for GitOps automation:
 ```sh
 flux bootstrap github \
   --owner=wussh \
-  --repository=kubernetes-ingress-istio-automation \
+  --repository=terraform-azure-k3s-cluster \
   --branch=main \
   --path=clusters/azure \
   --personal
 ```
+
+To install the Flux CLI and enable bash completion:
+
+```sh
+curl -s https://fluxcd.io/install.sh | sudo bash
+
+# Enable bash completion for Flux (add to your ~/.bashrc for persistence)
+. <(flux completion bash)
+```
+
+To use `kubectl` and Flux with your K3s cluster, export the kubeconfig (replace `<master_vm_public_ip>` with your actual value):
+
+```sh
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+```
+
+Now you can use `kubectl` and `flux` commands to interact with your cluster.
 
 ---
 
