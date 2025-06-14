@@ -176,6 +176,43 @@ The following ports are allowed between nodes for K3s operation (see `network.tf
 
 These rules are defined in the `azurerm_network_security_group.k3s` resource and ensure proper communication between all cluster nodes.
 
+## Load Balancer Connectivity
+
+For the Azure Load Balancer to properly forward HTTP and HTTPS traffic to your cluster services, ensure the following NSG rules are added to the `nsg-k3s` security group:
+
+- **TCP 80 (HTTP):** Allow inbound HTTP traffic from any source
+- **TCP 443 (HTTPS):** Allow inbound HTTPS traffic from any source
+
+These rules are essential for the load balancer to route external traffic to your ingress controllers (like Traefik) running in the cluster. Without these rules, your services will not be accessible from the internet even if they're properly exposed through ingress resources.
+
+If you're unable to access your services through the load balancer's public IP or a domain pointing to it, verify these rules are present in your NSG configuration:
+
+```sh
+az network nsg rule list -g <resource_group_name> --nsg-name nsg-k3s --query "[?destinationPortRange=='80' || destinationPortRange=='443']"
+```
+
+If no rules are returned, add them using:
+
+```sh
+az network nsg rule create \
+  --resource-group <resource_group_name> \
+  --nsg-name nsg-k3s \
+  --name allow-http \
+  --priority 210 \
+  --protocol Tcp \
+  --destination-port-range 80 \
+  --access Allow
+
+az network nsg rule create \
+  --resource-group <resource_group_name> \
+  --nsg-name nsg-k3s \
+  --name allow-https \
+  --priority 220 \
+  --protocol Tcp \
+  --destination-port-range 443 \
+  --access Allow
+```
+
 ---
 
 ## Troubleshooting
