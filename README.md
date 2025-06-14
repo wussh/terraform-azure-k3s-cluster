@@ -254,6 +254,42 @@ az network nsg rule create \
   --access Allow
 ```
 
+### Load Balancer Rules for Istio Gateway
+
+For the Istio Gateway to properly receive external traffic, the Azure Load Balancer must have rules for ports 8080 and 8443. These rules are defined in `loadbalancer.tf`:
+
+```terraform
+# Load Balancer Istio HTTP Rule
+resource "azurerm_lb_rule" "istio_http" {
+  loadbalancer_id                = azurerm_lb.k3s.id
+  name                           = "istio-http"
+  protocol                       = "Tcp"
+  frontend_port                  = 8080
+  backend_port                   = 8080
+  frontend_ip_configuration_name = "PublicIPAddress"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
+  probe_id                       = azurerm_lb_probe.istio_http.id
+}
+
+# Load Balancer Istio HTTPS Rule
+resource "azurerm_lb_rule" "istio_https" {
+  loadbalancer_id                = azurerm_lb.k3s.id
+  name                           = "istio-https"
+  protocol                       = "Tcp"
+  frontend_port                  = 8443
+  backend_port                   = 8443
+  frontend_ip_configuration_name = "PublicIPAddress"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.k3s.id]
+  probe_id                       = azurerm_lb_probe.istio_https.id
+}
+```
+
+To apply these changes to your Azure infrastructure:
+
+```sh
+terraform apply -target=azurerm_lb_rule.istio_http -target=azurerm_lb_rule.istio_https -target=azurerm_lb_probe.istio_http -target=azurerm_lb_probe.istio_https
+```
+
 ### Using Istio Gateway
 
 To expose a service through the Istio Gateway, create Gateway and VirtualService resources:
