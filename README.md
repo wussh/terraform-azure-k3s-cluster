@@ -237,6 +237,45 @@ This architecture provides several benefits:
 - Traefik handles TLS termination and external routing
 - Istio focuses on internal service mesh capabilities and traffic management
 
+### Detailed Traffic Flow
+
+Here's a detailed breakdown of how traffic flows through the system:
+
+1. **External Request**:
+   - User makes a request to `http://istio.wush.site`
+   - DNS resolves to Azure Load Balancer IP
+
+2. **Azure Load Balancer**:
+   - Receives traffic on port 80/443
+   - Routes to Kubernetes nodes based on `loadbalancer.tf` rules
+   - Both master and worker nodes are in the backend pool
+
+3. **Traefik Ingress Controller**:
+   - Runs as a LoadBalancer service in the cluster
+   - Examines the Host header (`istio.wush.site`)
+   - Matches the IngressRoute in `istio-system` namespace
+
+4. **Traefik IngressRoute**:
+   - Routes traffic to the Istio Gateway service
+   - Must be in the same namespace as the target service (security constraint)
+   - Uses `passHostHeader: true` to preserve the original host header
+
+5. **Istio Gateway Service**:
+   - ClusterIP service that forwards to the Istio Gateway pod
+   - Internal to the cluster (not directly exposed to internet)
+
+6. **Istio Gateway Resource**:
+   - Defines which hosts and ports to accept
+   - Routes traffic based on the host header
+
+7. **Istio VirtualService**:
+   - Routes traffic to the appropriate backend service
+   - Can apply traffic policies, retries, timeouts, etc.
+
+8. **Application Service**:
+   - Receives the request and forwards to application pods
+   - Pods have Istio sidecars for mesh features
+
 ### Installing Istio
 
 Istio is deployed using Flux CD with the following components:
@@ -276,11 +315,11 @@ az network nsg rule create \
 To route traffic from Traefik to the Istio Gateway, create a Traefik IngressRoute:
 
 ```yaml
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: istio-gateway-route
-  namespace: internal
+  namespace: istio-system  # MUST be in same namespace as target service
 spec:
   entryPoints:
     - web
@@ -290,8 +329,8 @@ spec:
       kind: Rule
       services:
         - name: istio-gateway
-          namespace: istio-system
           port: 80
+          passHostHeader: true  # Important to preserve host header
 ```
 
 ### Using Istio Gateway
@@ -342,6 +381,50 @@ spec:
 ```
 
 Access your service at `http://istio.wush.site` or `https://istio.wush.site` through Traefik, which will route to the Istio Gateway.
+
+### Troubleshooting the Traefik-Istio Integration
+
+If you encounter issues with the Traefik to Istio Gateway routing:
+
+1. **Check Traefik IngressRoute Namespace**:
+   - The IngressRoute MUST be in the same namespace as the target service
+   - Traefik security prevents cross-namespace service targeting by default
+   ```sh
+   kubectl get ingressroute -A
+   ```
+
+2. **Verify Host Header Passing**:
+   - Ensure `passHostHeader: true` is set in the IngressRoute
+   - Istio Gateway needs the original host header to match routes
+
+3. **Check Traefik Logs**:
+   ```sh
+   kubectl logs -n internal deploy/traefik
+   ```
+   Look for errors like: `service istio-system/istio-gateway not in the parent resource namespace`
+
+4. **Test Direct Access to Services**:
+   ```sh
+   # Test nginx service directly
+   kubectl port-forward -n internal svc/nginx 8888:80
+   curl http://localhost:8888
+   
+   # Test Istio Gateway service from within the cluster
+   kubectl exec -it -n internal deploy/nginx -- curl -v http://istio-gateway.istio-system.svc.cluster.local
+   ```
+
+5. **Verify Istio Gateway Configuration**:
+   ```sh
+   kubectl get gateway -n istio-system
+   kubectl get virtualservice -A
+   ```
+   Ensure the Gateway is configured to accept traffic for your host
+
+6. **Check Istio Gateway Logs**:
+   ```sh
+   kubectl logs -n istio-system deploy/istio-gateway
+   ```
+   Look for connection attempts and any errors
 
 ---
 
