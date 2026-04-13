@@ -1,0 +1,139 @@
+# ============================================================
+# terraform.tfvars.example
+# ============================================================
+# Copy this file to terraform.tfvars and fill in your values:
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is listed in .gitignore so your secrets
+# and subscription IDs won't be committed to source control.
+# ============================================================
+
+# ------------------------------------------------------------
+# STEP 1 — Azure region
+# ------------------------------------------------------------
+# Pick the Azure region closest to you.
+# Run `az account list-locations -o table` for a full list.
+# Common values:
+#   "Southeast Asia"    (Singapore)
+#   "East Asia"         (Hong Kong)
+#   "East US"
+#   "West Europe"
+#   "Australia East"
+location = "Southeast Asia"
+
+# ------------------------------------------------------------
+# STEP 2 — Resource group name
+# ------------------------------------------------------------
+# All Azure resources will be created inside this group.
+# It will be created automatically if it doesn't exist.
+resource_group_name = "rg-k3s"
+
+# ------------------------------------------------------------
+# STEP 3 — Environment tag
+# ------------------------------------------------------------
+# Applied to every VM as an Azure tag. Useful for billing and
+# identifying resources in the portal.
+# Examples: "Production", "Staging", "Development"
+environment = "Production"
+
+# ------------------------------------------------------------
+# STEP 4 — Admin username
+# ------------------------------------------------------------
+# The Linux username you will SSH into the VMs with.
+# Avoid common names like "root" or "admin".
+admin_username = "wush"
+
+# ------------------------------------------------------------
+# STEP 5 — VM size
+# ------------------------------------------------------------
+# Choose a size that fits your workload.
+# Run `az vm list-sizes --location "Southeast Asia" -o table`
+# to see all available sizes.
+#
+# Recommended sizes:
+#   Standard_B2s   — 2 vCPU,  4 GB RAM  (dev / learning)
+#   Standard_B4ms  — 4 vCPU,  16 GB RAM (light production)
+#   Standard_D4s_v3 — 4 vCPU, 16 GB RAM (general workloads)
+#   Standard_D8s_v3 — 8 vCPU, 32 GB RAM (heavier workloads)
+vm_size = "Standard_B2s"
+
+# ------------------------------------------------------------
+# STEP 6 — Number of worker nodes
+# ------------------------------------------------------------
+# Must be 1 or more. Increase this to scale out your cluster.
+# Each worker gets its own NIC, VM, and a place in the LB pool.
+#
+# Examples:
+#   1  → 1 master + 1 worker  (minimal, good for learning)
+#   2  → 1 master + 2 workers (small production cluster)
+#   3  → 1 master + 3 workers (better availability)
+worker_count = 1
+
+# ------------------------------------------------------------
+# STEP 7 — SSH source CIDR restriction
+# ------------------------------------------------------------
+# Controls which IP addresses can reach the VMs on port 22.
+#
+# "*" allows SSH from anywhere — fine for a quick test, but
+# you SHOULD restrict this to your own IP in production.
+#
+# To find your public IP:
+#   curl -s ifconfig.me
+#
+# Then set it like:
+#   ssh_allowed_cidr = "203.0.113.42/32"
+ssh_allowed_cidr = "*"
+
+# ------------------------------------------------------------
+# STEP 8 — Network address spaces
+# ------------------------------------------------------------
+# Leave these at the defaults unless you need to integrate with
+# an existing VNet or VPN gateway.
+#
+# The three ranges must not overlap.
+vnet_address_space    = ["10.0.0.0/16"]
+k3s_subnet_prefix     = ["10.0.1.0/24"]   # Master + worker NICs
+gateway_subnet_prefix = ["10.0.2.0/24"]   # Load balancer / gateway
+
+# ============================================================
+# EXAMPLE CONFIGURATIONS
+# ============================================================
+# Minimal (learning / dev) — cheapest option, SSH from anywhere:
+# ---------------------------------------------------------------
+# location             = "Southeast Asia"
+# resource_group_name  = "rg-k3s-dev"
+# environment          = "Development"
+# admin_username       = "k3sadmin"
+# vm_size              = "Standard_B2s"
+# worker_count         = 1
+# ssh_allowed_cidr     = "*"
+# vnet_address_space   = ["10.0.0.0/16"]
+# k3s_subnet_prefix    = ["10.0.1.0/24"]
+# gateway_subnet_prefix = ["10.0.2.0/24"]
+
+# Standard (small production) — 2 workers, SSH restricted:
+# ---------------------------------------------------------------
+# location             = "East US"
+# resource_group_name  = "rg-k3s-prod"
+# environment          = "Production"
+# admin_username       = "k3sadmin"
+# vm_size              = "Standard_B4ms"
+# worker_count         = 2
+# ssh_allowed_cidr     = "203.0.113.42/32"   # ← your public IP
+# vnet_address_space   = ["10.0.0.0/16"]
+# k3s_subnet_prefix    = ["10.0.1.0/24"]
+# gateway_subnet_prefix = ["10.0.2.0/24"]
+
+# HA (high-availability) — 3 workers, locked-down SSH:
+# ---------------------------------------------------------------
+# location             = "West Europe"
+# resource_group_name  = "rg-k3s-ha"
+# environment          = "Production"
+# admin_username       = "k3sadmin"
+# vm_size              = "Standard_D4s_v3"
+# worker_count         = 3
+# ssh_allowed_cidr     = "203.0.113.42/32"   # ← your public IP
+# vnet_address_space   = ["10.10.0.0/16"]
+# k3s_subnet_prefix    = ["10.10.1.0/24"]
+# gateway_subnet_prefix = ["10.10.2.0/24"]

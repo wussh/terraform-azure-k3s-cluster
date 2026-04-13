@@ -1,7 +1,7 @@
 # Azure K3s Terraform Deployment
 
 ## Overview
-This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Terraform. It sets up a master and worker VM, configures networking, security, and generates SSH keys for secure access. The setup is suitable for development, testing, and learning Kubernetes on Azure.
+This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Terraform. It sets up a master and one or more worker VMs, configures networking, security, and generates SSH keys for secure access. The setup is suitable for development, testing, and learning Kubernetes on Azure.
 
 ---
 
@@ -12,10 +12,10 @@ This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Te
   - Network Security Groups (NSGs) with recommended K3s rules
   - Public IPs for Load Balancer and Master VM
   - Azure Load Balancer (L4)
-  - Linux Virtual Machines (Master & Worker)
+  - Linux Virtual Machines (1 Master + N Workers)
 - **K3s:**
   - Master node runs the K3s server
-  - Worker node joins the cluster as an agent
+  - Worker nodes join the cluster as agents
   - Optional: Traefik ingress controller (disabled by default)
 
 ---
@@ -24,6 +24,257 @@ This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Te
 - [Terraform](https://www.terraform.io/downloads.html) >= 1.0
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - Azure subscription and credentials set up (see `providers.tf`)
+
+---
+
+## Quick Start — Step by Step
+
+Follow these steps in order to go from zero to a running K3s cluster.
+
+### Step 1 — Clone the repository
+
+```sh
+git clone https://github.com/wussh/terraform-azure-k3s-cluster.git
+cd terraform-azure-k3s-cluster
+```
+
+### Step 2 — Authenticate with Azure
+
+```sh
+# Log in interactively (opens a browser window)
+az login
+
+# Confirm the right subscription is active
+az account show --query "{name:name, id:id}" -o table
+
+# (Optional) Switch to a different subscription
+az account set --subscription "<your-subscription-id>"
+```
+
+### Step 3 — Create providers.tf
+
+`providers.tf` is gitignored to keep credentials out of source control. Copy the example and fill in your IDs:
+
+```sh
+cp providers.tf.example providers.tf
+```
+
+Open `providers.tf` and replace the placeholder values:
+
+```hcl
+provider "azurerm" {
+  features {}
+
+  subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # az account show --query id
+  tenant_id       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # az account show --query tenantId
+}
+```
+
+Find your IDs with:
+
+```sh
+az account show --query "{subscriptionId:id, tenantId:tenantId}" -o table
+```
+
+### Step 4 — Configure your variables
+
+Copy the example variables file and edit it:
+
+```sh
+cp terraform.tfvars.example terraform.tfvars
+```
+
+`terraform.tfvars` is also gitignored. Open it and set the values that matter most:
+
+| Variable | What to set | How to find the value |
+|---|---|---|
+| `location` | Azure region nearest to you | `az account list-locations -o table` |
+| `resource_group_name` | Any name you like, e.g. `rg-k3s` | — |
+| `admin_username` | Your SSH username, e.g. `k3sadmin` | — |
+| `vm_size` | VM SKU, e.g. `Standard_B2s` | `az vm list-sizes --location "Southeast Asia" -o table` |
+| `worker_count` | Number of worker nodes (≥ 1) | — |
+| `ssh_allowed_cidr` | Your public IP, e.g. `1.2.3.4/32` | `curl -s ifconfig.me` |
+
+**Minimal example** (great for learning — 1 master + 1 worker, cheapest VM):
+
+```hcl
+location            = "Southeast Asia"
+resource_group_name = "rg-k3s-dev"
+environment         = "Development"
+admin_username      = "k3sadmin"
+vm_size             = "Standard_B2s"
+worker_count        = 1
+ssh_allowed_cidr    = "*"   # OK for a quick test; restrict in production
+```
+
+**Standard example** (2 workers, SSH restricted to your IP):
+
+```hcl
+location            = "East US"
+resource_group_name = "rg-k3s-prod"
+environment         = "Production"
+admin_username      = "k3sadmin"
+vm_size             = "Standard_B4ms"
+worker_count        = 2
+ssh_allowed_cidr    = "203.0.113.42/32"   # ← your public IP
+```
+
+**HA example** (3 workers, larger VMs):
+
+```hcl
+location              = "West Europe"
+resource_group_name   = "rg-k3s-ha"
+environment           = "Production"
+admin_username        = "k3sadmin"
+vm_size               = "Standard_D4s_v3"
+worker_count          = 3
+ssh_allowed_cidr      = "203.0.113.42/32"
+vnet_address_space    = ["10.10.0.0/16"]
+k3s_subnet_prefix     = ["10.10.1.0/24"]
+gateway_subnet_prefix = ["10.10.2.0/24"]
+```
+
+### Step 5 — Initialise Terraform
+
+Downloads the required providers (Azure, TLS, Local):
+
+```sh
+terraform init
+```
+
+Expected output:
+
+```
+Terraform has been successfully initialized!
+```
+
+### Step 6 — Preview the plan
+
+Review every resource that Terraform will create **before** anything is provisioned:
+
+```sh
+terraform plan
+```
+
+Look for lines like:
+
+```
+Plan: 20 to add, 0 to change, 0 to destroy.
+```
+
+The exact count depends on `worker_count`. Each additional worker adds a NIC, a VM, and a backend-pool association.
+
+### Step 7 — Apply (provision the infrastructure)
+
+```sh
+terraform apply
+```
+
+Type `yes` when prompted. Provisioning typically takes **3–5 minutes**.
+
+At the end you'll see the outputs:
+
+```
+Outputs:
+
+load_balancer_public_ip      = "20.1.2.3"
+master_vm_public_ip          = "20.4.5.6"
+master_vm_private_ip         = "10.0.1.4"
+worker_vm_private_ips        = ["10.0.1.5"]
+ssh_private_key_path         = "./k3s_ssh_key"
+ssh_to_master_cmd            = "ssh -i ./k3s_ssh_key k3sadmin@20.4.5.6"
+ssh_to_worker_from_master_cmds = ["ssh k3sadmin@10.0.1.5"]
+```
+
+### Step 8 — SSH into the master VM
+
+Use the command printed in the outputs:
+
+```sh
+ssh -i ./k3s_ssh_key k3sadmin@<master_vm_public_ip>
+```
+
+Or copy it directly:
+
+```sh
+$(terraform output -raw ssh_to_master_cmd)
+```
+
+### Step 9 — Install K3s on the master
+
+Run this **on the master VM**:
+
+```sh
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --disable=traefik --write-kubeconfig-mode 644" sh -
+
+# Verify it's running
+sudo systemctl status k3s
+kubectl get nodes
+```
+
+### Step 10 — Join worker nodes
+
+**On the master**, get the join token:
+
+```sh
+sudo cat /var/lib/rancher/k3s/server/node-token
+```
+
+**From the master**, SSH into each worker (use the IPs from the output):
+
+```sh
+ssh k3sadmin@<worker_vm_private_ip>
+```
+
+**On each worker**, install K3s agent (replace the placeholders):
+
+```sh
+curl -sfL https://get.k3s.io \
+  | K3S_URL=https://<master_vm_private_ip>:6443 \
+    K3S_TOKEN=<node-token> \
+    sh -
+```
+
+### Step 11 — Verify the cluster
+
+**Back on the master:**
+
+```sh
+kubectl get nodes -o wide
+```
+
+All nodes should show `Ready` within a minute:
+
+```
+NAME               STATUS   ROLES                  AGE   VERSION
+vm-k3s-master      Ready    control-plane,master   2m    v1.x.x+k3s1
+vm-k3s-worker-1    Ready    <none>                 1m    v1.x.x+k3s1
+```
+
+### Step 12 — Access the cluster from your laptop (optional)
+
+Copy the kubeconfig from the master to your local machine:
+
+```sh
+# On your laptop
+scp -i ./k3s_ssh_key k3sadmin@<master_vm_public_ip>:/etc/rancher/k3s/k3s.yaml ~/.kube/k3s-azure.yaml
+
+# Replace the server address so kubectl can reach the master remotely
+sed -i 's|127.0.0.1|<master_vm_public_ip>|g' ~/.kube/k3s-azure.yaml
+
+export KUBECONFIG=~/.kube/k3s-azure.yaml
+kubectl get nodes
+```
+
+### Step 13 — Destroy the cluster (when done)
+
+To remove **all** Azure resources and avoid ongoing costs:
+
+```sh
+terraform destroy
+```
+
+Type `yes` to confirm. This deletes the resource group and everything inside it.
 
 ---
 
@@ -39,9 +290,21 @@ This project is organized into several `.tf` files, each with a specific purpose
   - `azurerm_resource_group.k3s`: Creates the resource group for all resources.
 
 ### `variables.tf`
-- **Purpose:** Defines variables for customization, such as location, VM size, admin username, and network ranges.
+- **Purpose:** Defines variables for customization, such as location, VM size, admin username, network ranges, and cluster sizing.
 - **Key Variables:**
-  - `location`, `resource_group_name`, `admin_username`, `vm_size`, `vnet_address_space`, etc.
+
+| Variable | Default | Description |
+|---|---|---|
+| `location` | `Southeast Asia` | Azure region |
+| `resource_group_name` | `rg-k3s` | Resource group name |
+| `environment` | `Production` | Tag applied to all VMs |
+| `admin_username` | `wush` | VM admin username |
+| `vm_size` | `Standard_B2s` | VM SKU |
+| `worker_count` | `1` | Number of worker VMs (≥ 1) |
+| `ssh_allowed_cidr` | `*` | CIDR allowed to reach port 22 — restrict this in production |
+| `vnet_address_space` | `10.0.0.0/16` | VNet address space |
+| `k3s_subnet_prefix` | `10.0.1.0/24` | K3s subnet |
+| `gateway_subnet_prefix` | `10.0.2.0/24` | Gateway subnet |
 
 ### `main.tf`
 - **Purpose:** Entry point for the configuration and contains resources for generating SSH keys.
@@ -55,8 +318,8 @@ This project is organized into several `.tf` files, each with a specific purpose
   - `azurerm_virtual_network.k3s`: The main VNet for the cluster.
   - `azurerm_subnet.k3s` and `azurerm_subnet.gateway`: Subnets for K3s and gateway.
   - `azurerm_network_security_group.k3s` and `azurerm_network_security_group.gateway`: NSGs with detailed security rules for K3s operation (see below for rule details).
-  - `azurerm_network_interface.master` and `azurerm_network_interface.worker`: NICs for the master and worker VMs.
-  - `azurerm_network_interface_backend_address_pool_association.master`: Associates the master NIC with the load balancer backend pool.
+  - `azurerm_network_interface.master` and `azurerm_network_interface.worker` (count): NICs for the master and worker VMs.
+  - Backend pool associations for both master and all worker NICs.
 
 ### `loadbalancer.tf`
 - **Purpose:** Sets up the Azure Load Balancer and related resources for external access and traffic distribution.
@@ -70,17 +333,17 @@ This project is organized into several `.tf` files, each with a specific purpose
 ### `compute.tf`
 - **Purpose:** Defines the compute resources (VMs) for the K3s master and worker nodes.
 - **Key Resources:**
-  - `azurerm_linux_virtual_machine.master` and `azurerm_linux_virtual_machine.worker`: The VMs for the master and worker nodes, configured to use the generated SSH key and the latest Ubuntu LTS image.
+  - `azurerm_linux_virtual_machine.master` and `azurerm_linux_virtual_machine.worker` (count): The VMs for the master and worker nodes, configured to use the generated SSH key and the latest Ubuntu LTS image.
   - `admin_ssh_key`: Injects the generated public key for secure access.
   - `os_disk` and `source_image_reference`: Disk and OS image configuration.
-  - `provisioner` blocks (on master): Optionally copy the private key and set up SSH access from master to worker.
+  - `provisioner` blocks (on master): Copy the private key and register all workers in `/etc/hosts` and `known_hosts`.
 
 ### `outputs.tf`
 - **Purpose:** Defines outputs to make it easy to retrieve important information after deployment.
 - **Key Outputs:**
   - `ssh_to_master_cmd`: SSH command for accessing the master VM.
-  - `ssh_to_worker_from_master_cmd`: SSH command for accessing the worker from the master.
-  - `master_vm_public_ip`, `worker_vm_private_ip`, etc.
+  - `ssh_to_worker_from_master_cmds`: List of SSH commands for accessing each worker from the master.
+  - `master_vm_public_ip`, `worker_vm_private_ips` (list), etc.
   - `ssh_private_key_path`: Path to the generated SSH private key.
 
 ---
@@ -92,7 +355,7 @@ This project is organized into several `.tf` files, each with a specific purpose
 3. **NSG rules** ensure that all required K3s ports are open between nodes for cluster communication.
 4. **VMs are created** with the generated SSH key for secure access.
 5. **Outputs** provide you with ready-to-use SSH commands and IP addresses.
-6. **You install K3s** on the master and join the worker using the provided instructions.
+6. **You install K3s** on the master and join the workers using the provided instructions.
 
 ---
 
@@ -164,17 +427,23 @@ Now you can use `kubectl` and `flux` commands to interact with your cluster.
 
 ## Network Security Group (NSG) Rules
 The following ports are allowed between nodes for K3s operation (see `network.tf`):
-- **TCP 22:** SSH
-- **TCP 6443:** Kubernetes API server
-- **TCP 2379-2380:** etcd (HA only)
-- **UDP 8472:** Flannel VXLAN
-- **TCP 10250:** Kubelet metrics
-- **UDP 51820:** Flannel Wireguard IPv4
-- **UDP 51821:** Flannel Wireguard IPv6
-- **TCP 5001:** Embedded registry (Spegel)
-- **TCP 6443:** Embedded registry (Spegel)
 
-These rules are defined in the `azurerm_network_security_group.k3s` resource and ensure proper communication between all cluster nodes.
+| Port | Protocol | Source | Description |
+|---|---|---|---|
+| 22 | TCP | `ssh_allowed_cidr` | SSH |
+| 6443 | TCP | k3s subnet | Kubernetes API server |
+| 2379–2380 | TCP | k3s subnet | etcd (HA only) |
+| 8472 | UDP | k3s subnet | Flannel VXLAN |
+| 10250 | TCP | k3s subnet | Kubelet metrics |
+| 51820 | UDP | k3s subnet | Flannel WireGuard IPv4 |
+| 51821 | UDP | k3s subnet | Flannel WireGuard IPv6 |
+| 5001 | TCP | k3s subnet | Embedded registry (Spegel) |
+| 80 | TCP | Any | HTTP |
+| 443 | TCP | Any | HTTPS |
+| 8080 | TCP | Any | Istio HTTP |
+| 8443 | TCP | Any | Istio HTTPS |
+
+> **Security tip:** Set `ssh_allowed_cidr` to your own public IP (e.g. `"1.2.3.4/32"`) to restrict SSH access to your machine only.
 
 ## Load Balancer Connectivity
 
@@ -189,28 +458,6 @@ If you're unable to access your services through the load balancer's public IP o
 
 ```sh
 az network nsg rule list -g <resource_group_name> --nsg-name nsg-k3s --query "[?destinationPortRange=='80' || destinationPortRange=='443']"
-```
-
-If no rules are returned, add them using:
-
-```sh
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-http \
-  --priority 210 \
-  --protocol Tcp \
-  --destination-port-range 80 \
-  --access Allow
-
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-https \
-  --priority 220 \
-  --protocol Tcp \
-  --destination-port-range 443 \
-  --access Allow
 ```
 
 ## Istio Service Mesh
@@ -285,30 +532,6 @@ Istio is deployed using Flux CD with the following components:
 3. **istio-gateway:** Ingress gateway for internal service mesh traffic (ClusterIP)
 
 The Helm release configurations are in `releases/azure/core/istio/release.yaml`.
-
-### Network Security Group Rules
-
-The NSG rules for standard HTTP/HTTPS traffic are sufficient as all external traffic goes through Traefik:
-
-```sh
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-http \
-  --priority 210 \
-  --protocol Tcp \
-  --destination-port-range 80 \
-  --access Allow
-
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-https \
-  --priority 220 \
-  --protocol Tcp \
-  --destination-port-range 443 \
-  --access Allow
-```
 
 ### Traefik to Istio Integration
 
@@ -462,4 +685,4 @@ sudo systemctl status firewalld
 ---
 
 ## License
-MIT 
+MIT
