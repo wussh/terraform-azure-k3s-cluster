@@ -27,6 +27,257 @@ This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Te
 
 ---
 
+## Quick Start — Step by Step
+
+Follow these steps in order to go from zero to a running K3s cluster.
+
+### Step 1 — Clone the repository
+
+```sh
+git clone https://github.com/wussh/terraform-azure-k3s-cluster.git
+cd terraform-azure-k3s-cluster
+```
+
+### Step 2 — Authenticate with Azure
+
+```sh
+# Log in interactively (opens a browser window)
+az login
+
+# Confirm the right subscription is active
+az account show --query "{name:name, id:id}" -o table
+
+# (Optional) Switch to a different subscription
+az account set --subscription "<your-subscription-id>"
+```
+
+### Step 3 — Create providers.tf
+
+`providers.tf` is gitignored to keep credentials out of source control. Copy the example and fill in your IDs:
+
+```sh
+cp providers.tf.example providers.tf
+```
+
+Open `providers.tf` and replace the placeholder values:
+
+```hcl
+provider "azurerm" {
+  features {}
+
+  subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # az account show --query id
+  tenant_id       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # az account show --query tenantId
+}
+```
+
+Find your IDs with:
+
+```sh
+az account show --query "{subscriptionId:id, tenantId:tenantId}" -o table
+```
+
+### Step 4 — Configure your variables
+
+Copy the example variables file and edit it:
+
+```sh
+cp terraform.tfvars.example terraform.tfvars
+```
+
+`terraform.tfvars` is also gitignored. Open it and set the values that matter most:
+
+| Variable | What to set | How to find the value |
+|---|---|---|
+| `location` | Azure region nearest to you | `az account list-locations -o table` |
+| `resource_group_name` | Any name you like, e.g. `rg-k3s` | — |
+| `admin_username` | Your SSH username, e.g. `k3sadmin` | — |
+| `vm_size` | VM SKU, e.g. `Standard_B2s` | `az vm list-sizes --location "Southeast Asia" -o table` |
+| `worker_count` | Number of worker nodes (≥ 1) | — |
+| `ssh_allowed_cidr` | Your public IP, e.g. `1.2.3.4/32` | `curl -s ifconfig.me` |
+
+**Minimal example** (great for learning — 1 master + 1 worker, cheapest VM):
+
+```hcl
+location            = "Southeast Asia"
+resource_group_name = "rg-k3s-dev"
+environment         = "Development"
+admin_username      = "k3sadmin"
+vm_size             = "Standard_B2s"
+worker_count        = 1
+ssh_allowed_cidr    = "*"   # OK for a quick test; restrict in production
+```
+
+**Standard example** (2 workers, SSH restricted to your IP):
+
+```hcl
+location            = "East US"
+resource_group_name = "rg-k3s-prod"
+environment         = "Production"
+admin_username      = "k3sadmin"
+vm_size             = "Standard_B4ms"
+worker_count        = 2
+ssh_allowed_cidr    = "203.0.113.42/32"   # ← your public IP
+```
+
+**HA example** (3 workers, larger VMs):
+
+```hcl
+location              = "West Europe"
+resource_group_name   = "rg-k3s-ha"
+environment           = "Production"
+admin_username        = "k3sadmin"
+vm_size               = "Standard_D4s_v3"
+worker_count          = 3
+ssh_allowed_cidr      = "203.0.113.42/32"
+vnet_address_space    = ["10.10.0.0/16"]
+k3s_subnet_prefix     = ["10.10.1.0/24"]
+gateway_subnet_prefix = ["10.10.2.0/24"]
+```
+
+### Step 5 — Initialise Terraform
+
+Downloads the required providers (Azure, TLS, Local):
+
+```sh
+terraform init
+```
+
+Expected output:
+
+```
+Terraform has been successfully initialized!
+```
+
+### Step 6 — Preview the plan
+
+Review every resource that Terraform will create **before** anything is provisioned:
+
+```sh
+terraform plan
+```
+
+Look for lines like:
+
+```
+Plan: 20 to add, 0 to change, 0 to destroy.
+```
+
+The exact count depends on `worker_count`. Each additional worker adds a NIC, a VM, and a backend-pool association.
+
+### Step 7 — Apply (provision the infrastructure)
+
+```sh
+terraform apply
+```
+
+Type `yes` when prompted. Provisioning typically takes **3–5 minutes**.
+
+At the end you'll see the outputs:
+
+```
+Outputs:
+
+load_balancer_public_ip      = "20.1.2.3"
+master_vm_public_ip          = "20.4.5.6"
+master_vm_private_ip         = "10.0.1.4"
+worker_vm_private_ips        = ["10.0.1.5"]
+ssh_private_key_path         = "./k3s_ssh_key"
+ssh_to_master_cmd            = "ssh -i ./k3s_ssh_key k3sadmin@20.4.5.6"
+ssh_to_worker_from_master_cmds = ["ssh k3sadmin@10.0.1.5"]
+```
+
+### Step 8 — SSH into the master VM
+
+Use the command printed in the outputs:
+
+```sh
+ssh -i ./k3s_ssh_key k3sadmin@<master_vm_public_ip>
+```
+
+Or copy it directly:
+
+```sh
+$(terraform output -raw ssh_to_master_cmd)
+```
+
+### Step 9 — Install K3s on the master
+
+Run this **on the master VM**:
+
+```sh
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --disable=traefik --write-kubeconfig-mode 644" sh -
+
+# Verify it's running
+sudo systemctl status k3s
+kubectl get nodes
+```
+
+### Step 10 — Join worker nodes
+
+**On the master**, get the join token:
+
+```sh
+sudo cat /var/lib/rancher/k3s/server/node-token
+```
+
+**From the master**, SSH into each worker (use the IPs from the output):
+
+```sh
+ssh k3sadmin@<worker_vm_private_ip>
+```
+
+**On each worker**, install K3s agent (replace the placeholders):
+
+```sh
+curl -sfL https://get.k3s.io \
+  | K3S_URL=https://<master_vm_private_ip>:6443 \
+    K3S_TOKEN=<node-token> \
+    sh -
+```
+
+### Step 11 — Verify the cluster
+
+**Back on the master:**
+
+```sh
+kubectl get nodes -o wide
+```
+
+All nodes should show `Ready` within a minute:
+
+```
+NAME               STATUS   ROLES                  AGE   VERSION
+vm-k3s-master      Ready    control-plane,master   2m    v1.x.x+k3s1
+vm-k3s-worker-1    Ready    <none>                 1m    v1.x.x+k3s1
+```
+
+### Step 12 — Access the cluster from your laptop (optional)
+
+Copy the kubeconfig from the master to your local machine:
+
+```sh
+# On your laptop
+scp -i ./k3s_ssh_key k3sadmin@<master_vm_public_ip>:/etc/rancher/k3s/k3s.yaml ~/.kube/k3s-azure.yaml
+
+# Replace the server address so kubectl can reach the master remotely
+sed -i 's|127.0.0.1|<master_vm_public_ip>|g' ~/.kube/k3s-azure.yaml
+
+export KUBECONFIG=~/.kube/k3s-azure.yaml
+kubectl get nodes
+```
+
+### Step 13 — Destroy the cluster (when done)
+
+To remove **all** Azure resources and avoid ongoing costs:
+
+```sh
+terraform destroy
+```
+
+Type `yes` to confirm. This deletes the resource group and everything inside it.
+
+---
+
 ## Terraform Configuration Walkthrough
 
 This project is organized into several `.tf` files, each with a specific purpose. Below is a detailed explanation of each file and the main resources defined within:
