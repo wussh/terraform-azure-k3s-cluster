@@ -1,7 +1,7 @@
 # Azure K3s Terraform Deployment
 
 ## Overview
-This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Terraform. It sets up a master and worker VM, configures networking, security, and generates SSH keys for secure access. The setup is suitable for development, testing, and learning Kubernetes on Azure.
+This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Terraform. It sets up a master and one or more worker VMs, configures networking, security, and generates SSH keys for secure access. The setup is suitable for development, testing, and learning Kubernetes on Azure.
 
 ---
 
@@ -12,10 +12,10 @@ This project provisions a lightweight Kubernetes (K3s) cluster on Azure using Te
   - Network Security Groups (NSGs) with recommended K3s rules
   - Public IPs for Load Balancer and Master VM
   - Azure Load Balancer (L4)
-  - Linux Virtual Machines (Master & Worker)
+  - Linux Virtual Machines (1 Master + N Workers)
 - **K3s:**
   - Master node runs the K3s server
-  - Worker node joins the cluster as an agent
+  - Worker nodes join the cluster as agents
   - Optional: Traefik ingress controller (disabled by default)
 
 ---
@@ -39,9 +39,21 @@ This project is organized into several `.tf` files, each with a specific purpose
   - `azurerm_resource_group.k3s`: Creates the resource group for all resources.
 
 ### `variables.tf`
-- **Purpose:** Defines variables for customization, such as location, VM size, admin username, and network ranges.
+- **Purpose:** Defines variables for customization, such as location, VM size, admin username, network ranges, and cluster sizing.
 - **Key Variables:**
-  - `location`, `resource_group_name`, `admin_username`, `vm_size`, `vnet_address_space`, etc.
+
+| Variable | Default | Description |
+|---|---|---|
+| `location` | `Southeast Asia` | Azure region |
+| `resource_group_name` | `rg-k3s` | Resource group name |
+| `environment` | `Production` | Tag applied to all VMs |
+| `admin_username` | `wush` | VM admin username |
+| `vm_size` | `Standard_B2s` | VM SKU |
+| `worker_count` | `1` | Number of worker VMs (≥ 1) |
+| `ssh_allowed_cidr` | `*` | CIDR allowed to reach port 22 — restrict this in production |
+| `vnet_address_space` | `10.0.0.0/16` | VNet address space |
+| `k3s_subnet_prefix` | `10.0.1.0/24` | K3s subnet |
+| `gateway_subnet_prefix` | `10.0.2.0/24` | Gateway subnet |
 
 ### `main.tf`
 - **Purpose:** Entry point for the configuration and contains resources for generating SSH keys.
@@ -55,8 +67,8 @@ This project is organized into several `.tf` files, each with a specific purpose
   - `azurerm_virtual_network.k3s`: The main VNet for the cluster.
   - `azurerm_subnet.k3s` and `azurerm_subnet.gateway`: Subnets for K3s and gateway.
   - `azurerm_network_security_group.k3s` and `azurerm_network_security_group.gateway`: NSGs with detailed security rules for K3s operation (see below for rule details).
-  - `azurerm_network_interface.master` and `azurerm_network_interface.worker`: NICs for the master and worker VMs.
-  - `azurerm_network_interface_backend_address_pool_association.master`: Associates the master NIC with the load balancer backend pool.
+  - `azurerm_network_interface.master` and `azurerm_network_interface.worker` (count): NICs for the master and worker VMs.
+  - Backend pool associations for both master and all worker NICs.
 
 ### `loadbalancer.tf`
 - **Purpose:** Sets up the Azure Load Balancer and related resources for external access and traffic distribution.
@@ -70,17 +82,17 @@ This project is organized into several `.tf` files, each with a specific purpose
 ### `compute.tf`
 - **Purpose:** Defines the compute resources (VMs) for the K3s master and worker nodes.
 - **Key Resources:**
-  - `azurerm_linux_virtual_machine.master` and `azurerm_linux_virtual_machine.worker`: The VMs for the master and worker nodes, configured to use the generated SSH key and the latest Ubuntu LTS image.
+  - `azurerm_linux_virtual_machine.master` and `azurerm_linux_virtual_machine.worker` (count): The VMs for the master and worker nodes, configured to use the generated SSH key and the latest Ubuntu LTS image.
   - `admin_ssh_key`: Injects the generated public key for secure access.
   - `os_disk` and `source_image_reference`: Disk and OS image configuration.
-  - `provisioner` blocks (on master): Optionally copy the private key and set up SSH access from master to worker.
+  - `provisioner` blocks (on master): Copy the private key and register all workers in `/etc/hosts` and `known_hosts`.
 
 ### `outputs.tf`
 - **Purpose:** Defines outputs to make it easy to retrieve important information after deployment.
 - **Key Outputs:**
   - `ssh_to_master_cmd`: SSH command for accessing the master VM.
-  - `ssh_to_worker_from_master_cmd`: SSH command for accessing the worker from the master.
-  - `master_vm_public_ip`, `worker_vm_private_ip`, etc.
+  - `ssh_to_worker_from_master_cmds`: List of SSH commands for accessing each worker from the master.
+  - `master_vm_public_ip`, `worker_vm_private_ips` (list), etc.
   - `ssh_private_key_path`: Path to the generated SSH private key.
 
 ---
@@ -92,7 +104,7 @@ This project is organized into several `.tf` files, each with a specific purpose
 3. **NSG rules** ensure that all required K3s ports are open between nodes for cluster communication.
 4. **VMs are created** with the generated SSH key for secure access.
 5. **Outputs** provide you with ready-to-use SSH commands and IP addresses.
-6. **You install K3s** on the master and join the worker using the provided instructions.
+6. **You install K3s** on the master and join the workers using the provided instructions.
 
 ---
 
@@ -164,17 +176,23 @@ Now you can use `kubectl` and `flux` commands to interact with your cluster.
 
 ## Network Security Group (NSG) Rules
 The following ports are allowed between nodes for K3s operation (see `network.tf`):
-- **TCP 22:** SSH
-- **TCP 6443:** Kubernetes API server
-- **TCP 2379-2380:** etcd (HA only)
-- **UDP 8472:** Flannel VXLAN
-- **TCP 10250:** Kubelet metrics
-- **UDP 51820:** Flannel Wireguard IPv4
-- **UDP 51821:** Flannel Wireguard IPv6
-- **TCP 5001:** Embedded registry (Spegel)
-- **TCP 6443:** Embedded registry (Spegel)
 
-These rules are defined in the `azurerm_network_security_group.k3s` resource and ensure proper communication between all cluster nodes.
+| Port | Protocol | Source | Description |
+|---|---|---|---|
+| 22 | TCP | `ssh_allowed_cidr` | SSH |
+| 6443 | TCP | k3s subnet | Kubernetes API server |
+| 2379–2380 | TCP | k3s subnet | etcd (HA only) |
+| 8472 | UDP | k3s subnet | Flannel VXLAN |
+| 10250 | TCP | k3s subnet | Kubelet metrics |
+| 51820 | UDP | k3s subnet | Flannel WireGuard IPv4 |
+| 51821 | UDP | k3s subnet | Flannel WireGuard IPv6 |
+| 5001 | TCP | k3s subnet | Embedded registry (Spegel) |
+| 80 | TCP | Any | HTTP |
+| 443 | TCP | Any | HTTPS |
+| 8080 | TCP | Any | Istio HTTP |
+| 8443 | TCP | Any | Istio HTTPS |
+
+> **Security tip:** Set `ssh_allowed_cidr` to your own public IP (e.g. `"1.2.3.4/32"`) to restrict SSH access to your machine only.
 
 ## Load Balancer Connectivity
 
@@ -189,28 +207,6 @@ If you're unable to access your services through the load balancer's public IP o
 
 ```sh
 az network nsg rule list -g <resource_group_name> --nsg-name nsg-k3s --query "[?destinationPortRange=='80' || destinationPortRange=='443']"
-```
-
-If no rules are returned, add them using:
-
-```sh
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-http \
-  --priority 210 \
-  --protocol Tcp \
-  --destination-port-range 80 \
-  --access Allow
-
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-https \
-  --priority 220 \
-  --protocol Tcp \
-  --destination-port-range 443 \
-  --access Allow
 ```
 
 ## Istio Service Mesh
@@ -285,30 +281,6 @@ Istio is deployed using Flux CD with the following components:
 3. **istio-gateway:** Ingress gateway for internal service mesh traffic (ClusterIP)
 
 The Helm release configurations are in `releases/azure/core/istio/release.yaml`.
-
-### Network Security Group Rules
-
-The NSG rules for standard HTTP/HTTPS traffic are sufficient as all external traffic goes through Traefik:
-
-```sh
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-http \
-  --priority 210 \
-  --protocol Tcp \
-  --destination-port-range 80 \
-  --access Allow
-
-az network nsg rule create \
-  --resource-group <resource_group_name> \
-  --nsg-name nsg-k3s \
-  --name allow-https \
-  --priority 220 \
-  --protocol Tcp \
-  --destination-port-range 443 \
-  --access Allow
-```
 
 ### Traefik to Istio Integration
 
@@ -462,4 +434,4 @@ sudo systemctl status firewalld
 ---
 
 ## License
-MIT 
+MIT

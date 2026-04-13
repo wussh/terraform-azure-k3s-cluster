@@ -16,9 +16,9 @@ output "master_vm_private_ip" {
   value       = azurerm_network_interface.master.private_ip_address
 }
 
-output "worker_vm_private_ip" {
-  description = "The private IP address of the K3s worker VM"
-  value       = azurerm_network_interface.worker.private_ip_address
+output "worker_vm_private_ips" {
+  description = "The private IP addresses of all K3s worker VMs"
+  value       = azurerm_network_interface.worker[*].private_ip_address
 }
 
 output "load_balancer_public_ip" {
@@ -51,7 +51,7 @@ output "ssh_to_master_cmd" {
   value       = "ssh -i ${local_file.private_key.filename} ${var.admin_username}@${azurerm_public_ip.master.ip_address}"
 }
 
-output "ssh_to_worker_from_master_cmd" {
-  description = "Command to SSH from master VM to worker VM"
-  value       = "ssh ${var.admin_username}@${azurerm_network_interface.worker.private_ip_address}"
-} 
+output "ssh_to_worker_from_master_cmds" {
+  description = "Commands to SSH from the master VM to each worker VM"
+  value       = [for nic in azurerm_network_interface.worker : "ssh ${var.admin_username}@${nic.private_ip_address}"]
+}

@@ -1,11 +1,12 @@
 # K3s Master VM
 resource "azurerm_linux_virtual_machine" "master" {
-  name                = "vm-k3s-master"
-  resource_group_name = azurerm_resource_group.k3s.name
-  location            = azurerm_resource_group.k3s.location
-  size                = var.vm_size
-  admin_username      = var.admin_username
-  
+  name                            = "vm-k3s-master"
+  resource_group_name             = azurerm_resource_group.k3s.name
+  location                        = azurerm_resource_group.k3s.location
+  size                            = var.vm_size
+  admin_username                  = var.admin_username
+  disable_password_authentication = true
+
   network_interface_ids = [
     azurerm_network_interface.master.id,
   ]
@@ -27,7 +28,7 @@ resource "azurerm_linux_virtual_machine" "master" {
     version   = "latest"
   }
 
-  # Copy SSH private key to master VM for worker access
+  # Copy SSH private key to master VM so it can reach worker nodes
   provisioner "file" {
     content     = tls_private_key.ssh.private_key_pem
     destination = "/home/${var.admin_username}/.ssh/id_rsa"
@@ -40,13 +41,17 @@ resource "azurerm_linux_virtual_machine" "master" {
     }
   }
 
-  # Set permissions and add worker to known hosts
+  # Set key permissions and register all workers in known_hosts and /etc/hosts
   provisioner "remote-exec" {
-    inline = [
-      "chmod 600 /home/${var.admin_username}/.ssh/id_rsa",
-      "echo '${azurerm_network_interface.worker.private_ip_address} ${azurerm_linux_virtual_machine.worker.name}' | sudo tee -a /etc/hosts",
-      "ssh-keyscan -H ${azurerm_network_interface.worker.private_ip_address} >> /home/${var.admin_username}/.ssh/known_hosts"
-    ]
+    inline = flatten([
+      ["chmod 600 /home/${var.admin_username}/.ssh/id_rsa"],
+      [for i in range(var.worker_count) :
+        "echo '${azurerm_network_interface.worker[i].private_ip_address} ${azurerm_linux_virtual_machine.worker[i].name}' | sudo tee -a /etc/hosts"
+      ],
+      [for i in range(var.worker_count) :
+        "ssh-keyscan -H ${azurerm_network_interface.worker[i].private_ip_address} >> /home/${var.admin_username}/.ssh/known_hosts"
+      ],
+    ])
 
     connection {
       type        = "ssh"
@@ -57,21 +62,23 @@ resource "azurerm_linux_virtual_machine" "master" {
   }
 
   tags = {
-    environment = "Production"
+    environment = var.environment
     role        = "K3s-Master"
   }
 }
 
-# K3s Worker VM
+# K3s Worker VMs
 resource "azurerm_linux_virtual_machine" "worker" {
-  name                = "vm-k3s-worker"
-  resource_group_name = azurerm_resource_group.k3s.name
-  location            = azurerm_resource_group.k3s.location
-  size                = var.vm_size
-  admin_username      = var.admin_username
-  
+  count                           = var.worker_count
+  name                            = "vm-k3s-worker-${count.index + 1}"
+  resource_group_name             = azurerm_resource_group.k3s.name
+  location                        = azurerm_resource_group.k3s.location
+  size                            = var.vm_size
+  admin_username                  = var.admin_username
+  disable_password_authentication = true
+
   network_interface_ids = [
-    azurerm_network_interface.worker.id,
+    azurerm_network_interface.worker[count.index].id,
   ]
 
   admin_ssh_key {
@@ -92,7 +99,7 @@ resource "azurerm_linux_virtual_machine" "worker" {
   }
 
   tags = {
-    environment = "Production"
+    environment = var.environment
     role        = "K3s-Worker"
   }
-} 
+}
